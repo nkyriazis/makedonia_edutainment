@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Νομοί & Πρωτεύουσες Μακεδονίας – Παιχνίδι μνήμης + Διαδραστικός χάρτης</title>
+
+  <!-- Leaflet CSS (κύριο CDN) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"/>
+
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --muted:#9ca3af; --text:#e5e7eb; --brand:#22c55e; --brand-2:#38bdf8; --danger:#f43f5e; --ok:#10b981; --card:#0b1220; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:linear-gradient(120deg,#0b1020,#0f172a 50%,#0b1020); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,'Noto Sans',sans-serif; min-height:100vh; display:grid; grid-template-rows:auto 1fr; gap:12px; }
+    header { padding:14px 18px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; border-bottom:1px solid #1f2937; position:sticky; top:0; z-index:10; backdrop-filter:blur(6px); }
+    header h1 { font-size:clamp(18px,2.2vw,24px); margin:0; font-weight:700; letter-spacing:.3px; }
+    header .sub { color:var(--muted); font-size:12px; }
+    header .controls { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
+    button { border:1px solid #334155; background:#0b1220; color:var(--text); padding:8px 12px; border-radius:12px; cursor:pointer; transition:.08s transform,.2s background,.2s border-color,.2s box-shadow; font-weight:600; }
+    button:hover { transform:translateY(-1px); border-color:#3b82f6; box-shadow:0 6px 20px rgba(0,0,0,.35), inset 0 0 0 1px rgba(59,130,246,.2); }
+    button.primary { background:linear-gradient(135deg,#2563eb,#38bdf8); border-color:transparent; color:#fff; }
+
+    /* Διάταξη: αριστερά ο Χάρτης πλήρους ύψους, δεξιά το Παιχνίδι */
+    main { display:grid; grid-template-columns: 1.25fr 1fr; gap:14px; padding:0 14px 18px; align-items: stretch; }
+    @media (max-width:980px){ main { grid-template-columns:1fr; } }
+
+    .panel { background:linear-gradient(180deg,#0c1224,#0a0f1e); border:1px solid #1f2937; border-radius:18px; overflow:hidden; height:100%; display:grid; grid-template-rows:auto 1fr; }
+    .panel h2 { margin:0; padding:12px 14px; font-size:14px; letter-spacing:.2px; color:#9ca3af; border-bottom:1px solid #1f2937; background:#0b1220; }
+
+    /* Χάρτης: γεμίζει όλη την αριστερή στήλη */
+    #map { height:100%; width:100%; position:relative; }
+    .legend { position:absolute; bottom:10px; left:10px; background:#0b1220d0; padding:8px 10px; border-radius:12px; border:1px solid #1f2937; font-size:12px; color:#cbd5e1; z-index: 500; }
+    .legend b { color:#e5e7eb; }
+
+    /* Παιχνίδι δεξιά */
+    .game-wrapper { grid-template-rows:auto 1fr auto auto; }
+    .hud { display:flex; gap:10px; align-items:center; padding:10px 14px; border-bottom:1px solid #1f2937; background:#0b1220; }
+    .hud .pill { background:#0b1220; border:1px solid #1f2937; padding:6px 10px; border-radius:12px; color:#cbd5e1; font-size:12px; }
+    .hud .step { background:#0b1220; border:1px dashed #334155; }
+
+    .boards { display:grid; grid-template-columns: 1fr 1fr; gap:12px; padding:12px; height:100%; }
+    @media (max-width:980px){ .boards{ grid-template-columns:1fr; grid-auto-rows:1fr; } }
+
+    .subpanel { display:grid; grid-template-rows:auto 1fr auto; gap:8px; min-height:0; border:1px solid #1f2937; border-radius:14px; padding:10px; background:#0b1220; }
+    .subpanel h3 { margin:0; font-size:13px; color:#cbd5e1; font-weight:600; }
+
+    /* Κάθε board: responsive μέγεθος καρτών μέσω CSS μεταβλητών που ενημερώνει το JS */
+    .board { --tile-w: 140px; --tile-fs: clamp(12px, calc(var(--tile-w)*0.18), 28px); --tag-fs: clamp(9px, calc(var(--tile-w)*0.08), 12px); padding:6px; display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; overflow:auto; height:100%; align-content:start; }
+
+    .card { perspective:800px; aspect-ratio: 3 / 2; height:auto; }
+    .card-inner { position:relative; height:100%; transform-style:preserve-3d; transition:transform .32s ease; }
+    .card.flipped .card-inner { transform:rotateY(180deg); }
+    .face { position:absolute; inset:0; display:grid; place-items:center; backface-visibility:hidden; border-radius:14px; border:1px solid #1f2937; padding: 6px; text-align:center; font-size: var(--tile-fs); }
+    .front { background:radial-gradient(120px 80px at 20% 15%, rgba(255,255,255,.08), transparent 60%), var(--card); }
+    .back { background:linear-gradient(135deg,#2563eb, #38bdf8); transform:rotateY(180deg); color:#fff; font-weight:800; letter-spacing:.3px; }
+    .tag { position:absolute; top:6px; right:6px; font-size:var(--tag-fs); background:#0b1220cc; border:1px solid #1f2937; padding:3px 6px; border-radius:999px; color:#cbd5e1; }
+
+    .status { padding:10px 14px; font-size:12px; color:#cbd5e1; border-top:1px solid #1f2937; background:#0b1220; }
+    .status .ok { color:var(--ok); } .status .warn { color:#f59e0b; } .status .err { color:#f43f5e; }
+    .credits { font-size:11px; color:#9ca3af; padding:6px 12px 12px; }
+    .credits a { color:#93c5fd; text-decoration:none; }
+    .hidden { display:none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Νομοί &amp; Πρωτεύουσες της Μακεδονίας <span class="sub">(13)</span></h1>
+    <div class="controls">
+      <button class="primary" id="btn-new">Νέα παρτίδα</button>
+      <button id="btn-study">Λειτουργία μελέτης</button>
+      <button id="btn-show-all">Δείξε όλους τους μαρκαδόρους</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel" aria-label="Διαδραστικός χάρτης" id="map-panel">
+      <h2>Χάρτης</h2>
+      <div id="map"></div>
+      <div class="legend" id="legend">
+        <b>Υπόμνημα</b><br/>
+        • Μαρκαδόροι: πρωτεύουσες 13 νομών Μακεδονίας (Wikidata ή fallback)
+      </div>
+    </section>
+
+    <section class="panel game-wrapper">
+      <div class="hud">
+        <span class="pill">Γυρίσματα: <b id="moves">0</b></span>
+        <span class="pill">Ζευγάρια: <b id="pairs">0</b>/13</span>
+        <span class="pill" id="mode-pill">Κανονικό</span>
+        <span class="pill step" id="step-pill">Βήμα 1: διάλεξε Νομό ή Πρωτεύουσα</span>
+      </div>
+      <div class="boards">
+        <div class="subpanel" id="panel-nomoi">
+          <h3>Νομοί</h3>
+          <div class="board" id="board-nomoi" aria-label="Κάρτες Νομών"></div>
+          <div class="prompt" id="prompt-nomoi">Διάλεξε ένα Νομό.</div>
+        </div>
+        <div class="subpanel" id="panel-capitals">
+          <h3>Πρωτεύουσες</h3>
+          <div class="board" id="board-capitals" aria-label="Κάρτες Πρωτευουσών"></div>
+          <div class="prompt" id="prompt-capitals">Ή διάλεξε μία Πρωτεύουσα.</div>
+        </div>
+      </div>
+      <div class="status" id="status" aria-live="polite"></div>
+      <div class="credits">
+        Πηγές δεδομένων: Πρωτεύουσες από Βικιδεδομένα (SPARQL) με fallback τοπικές συντεταγμένες.
+      </div>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+
+    // ------------------------------
+    // 0) Ασφαλής φόρτωση Leaflet
+    // ------------------------------
+    async function ensureLeafletCSS(){
+      const has = Array.from(document.styleSheets).some(s => (s.href||'').includes('leaflet'))
+               || Array.from(document.querySelectorAll('link[rel="stylesheet"]')).some(l => (l.href||'').includes('leaflet'));
+      if (has) return;
+      const hrefs=[
+        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+        'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css',
+        'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
+      ];
+      for (const href of hrefs){
+        try{ await new Promise((res,rej)=>{ const link=document.createElement('link'); link.rel='stylesheet'; link.href=href; link.crossOrigin='anonymous'; link.onload=()=>res(); link.onerror=()=>rej(); document.head.appendChild(link); }); return; }catch(e){}
+      }
+    }
+    async function ensureLeaflet(){
+      if (window.L) return true;
+      const tries=[
+        {src:'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', integrity:'sha256-20nQCchB9co0qIjJZrkZkG0GZlC2LNf1q0x4H1Bf0XQ='},
+        {src:'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'},
+        {src:'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'}
+      ];
+      for (const t of tries){
+        try{ await new Promise((resolve,reject)=>{ const s=document.createElement('script'); s.src=t.src; s.async=true; s.crossOrigin='anonymous'; if(t.integrity) s.integrity=t.integrity; s.onload=()=>resolve(); s.onerror=()=>reject(); document.head.appendChild(s);}); if (window.L) return true; }catch(e){}
+      }
+      return false;
+    }
+
+    // ------------------------------
+    // 1) Δεδομένα
+    // ------------------------------
+    const NOMOI_MAKEDONIAS=[
+      { nomos:'Δράμας', capital:'Δράμα' },
+      { nomos:'Καβάλας', capital:'Καβάλα' },
+      { nomos:'Θεσσαλονίκης', capital:'Θεσσαλονίκη' },
+      { nomos:'Κιλκίς', capital:'Κιλκίς' },
+      { nomos:'Πέλλας', capital:'Έδεσσα' },
+      { nomos:'Ημαθίας', capital:'Βέροια' },
+      { nomos:'Πιερίας', capital:'Κατερίνη' },
+      { nomos:'Σερρών', capital:'Σέρρες' },
+      { nomos:'Χαλκιδικής', capital:'Πολύγυρος' },
+      { nomos:'Κοζάνης', capital:'Κοζάνη' },
+      { nomos:'Φλώρινας', capital:'Φλώρινα' },
+      { nomos:'Καστοριάς', capital:'Καστοριά' },
+      { nomos:'Γρεβενών', capital:'Γρεβενά' }
+    ];
+
+    const CAPITAL_COORDS_FALLBACK={
+      'Δράμα':[41.1524,24.1469], 'Καβάλα':[40.9396,24.4018], 'Θεσσαλονίκη':[40.6401,22.9444], 'Κιλκίς':[40.9930,22.8743],
+      'Έδεσσα':[40.8016,22.0470], 'Βέροια':[40.5244,22.2030], 'Κατερίνη':[40.2696,22.5060], 'Σέρρες':[41.0850,23.5470],
+      'Πολύγυρος':[40.3778,23.4431], 'Κοζάνη':[40.3006,21.7896], 'Φλώρινα':[40.7819,21.4097], 'Καστοριά':[40.5197,21.2687], 'Γρεβενά':[40.0845,21.4274]
+    };
+
+    // ------------------------------
+    // 2) Χάρτης / Μαρκαδόροι
+    // ------------------------------
+    let hasLeaflet=false; let map=null; let markersLayer=null; let statusEl=document.getElementById('status'); const stepPill=document.getElementById('step-pill');
+    const markerByCapital=new Map(); // "Θεσσαλονίκη" -> Marker
+    const markerByNomos=new Map();   // "Θεσσαλονίκης" -> Marker (της πρωτεύουσας)
+
+    function flashStatus(html,tone='ok'){ statusEl.innerHTML=`<span class="${tone}">${html}</span>`; }
+
+    async function loadCapitalsFromWikidata(){
+      const cities=[...new Set(NOMOI_MAKEDONIAS.map(x=>x.capital))];
+      const queries=cities.map(c=>`\"${c}\"`).join(' ');
+      const sparql=`
+        SELECT ?cityLabel ?coord WHERE {
+          VALUES ?needle { ${queries} }
+          SERVICE wikibase:mwapi {
+            bd:serviceParam wikibase:endpoint "www.wikidata.org";
+                             wikibase:api "EntitySearch";
+                             mwapi:search ?needle;
+                             mwapi:language "el".
+            ?item wikibase:apiOutputItem mwapi:item.
+          }
+          ?item wdt:P625 ?coord.
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "el,en". }
+          BIND(?needle AS ?cityLabel)
+        }`;
+      try{
+        const res=await fetch('https://query.wikidata.org/sparql?format=json&query='+encodeURIComponent(sparql),{headers:{'Accept':'application/sparql-results+json'}});
+        if(!res.ok) throw new Error('Wikidata HTTP '+res.status);
+        const data=await res.json();
+        const coords={};
+        for (const b of data.results.bindings){
+          const lab=b.cityLabel.value; const [lat,lon]=b.coord.value.replace('Point(','').replace(')','').split(' ').map(Number).reverse();
+          coords[lab]=[lat,lon];
+        }
+        return coords;
+      }catch(e){ console.warn('Wikidata coord lookup failed, using fallback',e); return {...CAPITAL_COORDS_FALLBACK}; }
+    }
+
+    function renderCapitalMarkers(coordsByCity){
+      if(!hasLeaflet) return;
+      markersLayer.clearLayers(); markerByCapital.clear(); markerByNomos.clear();
+      for (const {nomos,capital} of NOMOI_MAKEDONIAS){
+        const ll=coordsByCity[capital]||CAPITAL_COORDS_FALLBACK[capital]; if(!ll) continue;
+        const m=L.marker(ll, {opacity:1}).addTo(markersLayer);
+        m.options.opacity = 1;
+        m.bindPopup(`<b>${capital}</b><br/>Πρωτεύουσα νομού ${nomos}`);
+        markerByCapital.set(capital, m);
+        markerByNomos.set(nomos, m);
+      }
+    }
+
+    function applyCoordsToMarkers(coordsByCity){
+      if(!hasLeaflet) return;
+      for (const {nomos,capital} of NOMOI_MAKEDONIAS){
+        const ll=coordsByCity[capital]||CAPITAL_COORDS_FALLBACK[capital]; if(!ll) continue;
+        let m=markerByNomos.get(nomos);
+        if (m){
+          try{
+            const cur=m.getLatLng();
+            if (Math.abs(cur.lat-ll[0])>1e-5 || Math.abs(cur.lng-ll[1])>1e-5){ m.setLatLng(ll); }
+          }catch{}
+        } else {
+          const nm=L.marker(ll,{opacity:1}).addTo(markersLayer);
+          nm.options.opacity=1; nm.bindPopup(`<b>${capital}</b><br/>Πρωτεύουσα νομού ${nomos}`);
+          markerByCapital.set(capital, nm); markerByNomos.set(nomos, nm);
+        }
+      }
+    }
+
+    function openMarkerForNomos(nomos){ const marker=markerByNomos.get(nomos); if(!marker) return; try{ marker.openPopup(); map.setView(marker.getLatLng(), 9, {animate:true}); }catch{} }
+    function showOnlyMarkerForNomos(nomos){ const target=markerByNomos.get(nomos); if(!target) return; for (const m of markerByNomos.values()) { try{ m.setOpacity(0); m.options.opacity = 0; }catch{} } try{ target.setOpacity(1); target.options.opacity = 1; target.setZIndexOffset(1000); target.openPopup(); map.setView(target.getLatLng(), 9, {animate:true}); }catch{} }
+    function showAllMarkers(){ for (const m of markerByNomos.values()) { try{ m.setOpacity(1); m.options.opacity = 1; m.setZIndexOffset(0);}catch{} } }
+
+    // ------------------------------
+    // 3) Παιχνίδι μνήμης – Δύο πίνακες
+    // ------------------------------
+    const boardNomoi=document.getElementById('board-nomoi');
+    const boardCaps=document.getElementById('board-capitals');
+    const panelNomoi=document.getElementById('panel-nomoi');
+    const panelCaps=document.getElementById('panel-capitals');
+    const promptNomoi=document.getElementById('prompt-nomoi');
+    const promptCaps=document.getElementById('prompt-capitals');
+    const movesEl=document.getElementById('moves'); const pairsEl=document.getElementById('pairs'); const modePill=document.getElementById('mode-pill');
+
+    let firstPick=null; let locked=false; let moves=0; let foundPairs=0; let studyMode=false; let activeType=null; // 'nomos' | 'capital' | null
+
+    function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+    function cardsNomoi(){ return NOMOI_MAKEDONIAS.map(({nomos})=>({type:'nomos', label:`Νομός ${nomos}`, key:nomos, tag:'Νομός'})); }
+    function cardsCapitals(){ return NOMOI_MAKEDONΙΑΣ?.map(()=>[])??[]; /* guard for wrong symbol */ }
+    function cardsCapitalsCorrect(){ return NOMOI_MAKEDONIAS.map(({nomos,capital})=>({type:'capital', label:capital, key:nomos, tag:'Πρωτεύουσα'})); }
+
+    function makeCardEl(card, onClick){
+      const cardEl=document.createElement('div'); cardEl.className='card';
+      cardEl.dataset.type=card.type; cardEl.dataset.key=card.key; cardEl.dataset.label=card.label;
+      cardEl.innerHTML=`<div class="card-inner"><div class="face front"><span class="tag">${card.tag}</span></div><div class="face back">${card.label}</div></div>`;
+      cardEl.addEventListener('click',()=>onClick(cardEl,card));
+      return cardEl;
+    }
+
+    function renderPanels(){
+      boardNomoi.innerHTML=''; boardCaps.innerHTML='';
+      shuffle(cardsNomoi()).forEach(c=>boardNomoi.appendChild(makeCardEl(c,(el,card)=>onPick('nomos',el,card))));
+      shuffle(cardsCapitalsCorrect()).forEach(c=>boardCaps.appendChild(makeCardEl(c,(el,card)=>onPick('capital',el,card))));
+      // reset state
+      moves=0; foundPairs=0; firstPick=null; locked=false; activeType=null; movesEl.textContent='0'; pairsEl.textContent='0';
+      setActiveType(null);
+      flashStatus('Βήμα 1: Διάλεξε μία κάρτα από οποιονδήποτε πίνακα.','ok');
+      try { map && map.invalidateSize(); } catch {}
+      scheduleLayout();
+    }
+
+    function onPick(type, el, card){
+      if(locked) return;
+      if(el.classList.contains('flipped')) return;
+      if(firstPick && firstPick.type===type){ flashStatus('Διάλεξε τώρα από τον <b>άλλο</b> πίνακα.','warn'); return; }
+
+      // flip current
+      el.classList.add('flipped');
+
+      if(!firstPick){
+        firstPick={type, el, card};
+        stepPill.textContent = `Βήμα 2: βρες το ταίρι στον ${type==='nomos'?'πίνακα Πρωτευουσών':'πίνακα Νομών'}`;
+        setActiveType(type==='nomos'?'capital':'nomos');
+        if (type==='nomos') openMarkerForNomos(card.key); else { const nom = card.key; openMarkerForNomos(nom); }
+        return;
+      }
+
+      // second pick
+      locked=true; moves++; movesEl.textContent=String(moves);
+      const a=firstPick; const b={type, el, card}; const isMatch=a.card.key===b.card.key;
+      if(isMatch){
+        foundPairs++; pairsEl.textContent=String(foundPairs);
+        showOnlyMarkerForNomos(a.card.key);
+        setTimeout(()=>{
+          a.el.style.opacity=b.el.style.opacity=0.55; a.el.style.pointerEvents=b.el.style.pointerEvents='none';
+          flashStatus(`Μπράβο! Ταίριαξες <b>${a.card.key}</b>`, 'ok');
+          resetTurn();
+          if(foundPairs===13){ stepPill.textContent='Τέλος! Όλα τα ζευγάρια ταιριάχτηκαν ✨'; }
+        },380);
+      } else {
+        setTimeout(()=>{
+          a.el.classList.remove('flipped'); b.el.classList.remove('flipped');
+          flashStatus('Δεν ταιριάζουν – προσπάθησε ξανά!','warn');
+          resetTurn();
+        },650);
+      }
+    }
+
+    function resetTurn(){ firstPick=null; locked=false; setActiveType(null); stepPill.textContent='Βήμα 1: διάλεξε Νομό ή Πρωτεύουσα'; }
+
+    function setActiveType(t){
+      activeType=t;
+      const nomosActive = (t===null || t==='nomos');
+      const capActive   = (t===null || t==='capital');
+      panelNomoi.classList.toggle('disabled', !nomosActive);
+      panelCaps. classList.toggle('disabled', !capActive);
+      panelNomoi.classList.toggle('active', nomosActive && t!==null);
+      panelCaps. classList.toggle('active', capActive && t!==null);
+      promptNomoi.textContent = t==='nomos' ? 'Επίλεξε εδώ έναν Νομό.' : (t===null ? 'Διάλεξε έναν Νομό.' : 'Περίμενε: επίλεξε από Πρωτεύουσες.');
+      promptCaps.textContent  = t==='capital' ? 'Επίλεξε εδώ μία Πρωτεύουσα.' : (t===null ? 'Ή διάλεξε μία Πρωτεύουσα.' : 'Περίμενε: επίλεξε από Νομούς.');
+    }
+
+    // ------------------------------
+    // 4) Υπολογισμός διάταξης πλακιδίων και κλιμάκωση μεγέθους/γραμματοσειράς
+    // ------------------------------
+    function bestColumnsToFill(N, ar, W, H, gap){
+      let best=N; for(let c=1;c<=N;c++){ const r=Math.ceil(N/c); const w=(W - (c-1)*gap)/c; const h=w*(1/ar); const totalH=r*h + (r-1)*gap; if (totalH <= H){ best=c; break; } } return Math.max(1, Math.min(N, best));
+    }
+
+    function layoutOneBoard(boardEl){
+      const N=boardEl.children.length; if(!N) return;
+      const cs=getComputedStyle(boardEl); const gap=parseFloat(cs.gap)||8; const W=boardEl.clientWidth; const H=boardEl.clientHeight; const AR=3/2;
+      const cols=bestColumnsToFill(N, AR, W, H, gap);
+      boardEl.style.gridTemplateColumns=`repeat(${cols}, 1fr)`;
+      // Υπολογισμός πλάτους κάρτας για ρύθμιση font-size
+      const tileW=(W - (cols-1)*gap)/cols; boardEl.style.setProperty('--tile-w', `${tileW}px`);
+      const tileFS=Math.max(12, Math.min(28, tileW*0.18)); boardEl.style.setProperty('--tile-fs', `${tileFS}px`);
+      const tagFS=Math.max(9, Math.min(12, tileW*0.08)); boardEl.style.setProperty('--tag-fs', `${tagFS}px`);
+    }
+
+    function layoutBoards(){ layoutOneBoard(boardNomoi); layoutOneBoard(boardCaps); }
+
+    // Debounced / RAF-scheduled layout για αποφυγή ResizeObserver loop
+    let layoutScheduled=false;
+    function scheduleLayout(){
+      if(layoutScheduled) return;
+      layoutScheduled=true;
+      requestAnimationFrame(()=>{ layoutScheduled=false; layoutBoards(); });
+    }
+
+    // ------------------------------
+    // 5) Εκκίνηση εφαρμογής
+    // ------------------------------
+    async function startApp(){
+      await ensureLeafletCSS(); hasLeaflet=await ensureLeaflet();
+      if(hasLeaflet){
+        map=L.map('map',{ zoomControl:true, scrollWheelZoom:true }).setView([40.7,22.5],7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ maxZoom:18, attribution:'&copy; OpenStreetMap συνεισφέροντες' }).addTo(map);
+        markersLayer=L.layerGroup().addTo(map);
+        window.addEventListener('resize', () => { try{ map.invalidateSize(); }catch{} scheduleLayout(); });
+        setTimeout(()=>{ try{ map.invalidateSize(); }catch{} scheduleLayout(); }, 60);
+        renderCapitalMarkers(CAPITAL_COORDS_FALLBACK); showAllMarkers();
+      } else {
+        document.getElementById('map-panel').classList.add('hidden');
+        flashStatus('⚠️ Δεν φορτώθηκε ο χάρτης (Leaflet). Το παιχνίδι λειτουργεί κανονικά χωρίς χάρτη.','warn');
+      }
+
+      try {
+        const ro=new ResizeObserver(()=>scheduleLayout());
+        ro.observe(document.querySelector('.boards'));
+        ro.observe(boardNomoi);
+        ro.observe(boardCaps);
+      } catch {}
+
+      renderBoard();
+
+      try{ const coords=await loadCapitalsFromWikidata(); applyCoordsToMarkers(coords); flashStatus('Οι μαρκαδόροι ενημερώθηκαν με ακριβέστερες συντεταγμένες.','ok'); }catch(e){ console.warn(e); }
+
+      runSelfTests();
+    }
+
+    // συμβατότητα με παλιό όνομα
+    function renderBoard(){ renderPanels(); }
+
+    // ------------------------------
+    // 6) Test cases
+    // ------------------------------
+    function assert(cond,msg){ if(!cond) throw new Error(msg); }
+    function testData(){
+      // ΜΗΝ προκαλείς ReferenceError. Έλεγχος λάθους ονόματος με ασφαλή πρόσβαση.
+      const wrongSym='NOMOI_MAKEDONΙΑΣ';
+      assert(typeof window[wrongSym]==='undefined','Guard: wrong symbol should not exist');
+      assert(Array.isArray(NOMOI_MAKEDONIAS),'NOMOI_MAKEDONIAS should be array');
+      assert(NOMOI_MAKEDONIAS.length===13,'Πρέπει να υπάρχουν 13 νομοί');
+      const set=new Set(NOMOI_MAKEDONIAS.map(x=>x.nomos));
+      assert(set.size===13,'Οι νομοί πρέπει να είναι μοναδικοί');
+      console.info('✓ TestData passed');
+    }
+    function testBoardsTwoPanels(){ const n=document.querySelectorAll('#board-nomoi .card').length; const c=document.querySelectorAll('#board-capitals .card').length; assert(n===13 && c===13,'Κάθε πίνακας πρέπει να έχει 13 κάρτες'); console.info('✓ TestBoardsTwoPanels passed'); }
+    function testMarkers(){ assert(markerByNomos.size===13,'Πρέπει να υπάρχουν 13 μαρκαδόροι'); showOnlyMarkerForNomos('Κοζάνης'); let ones=0, zeros=0; for (const m of markerByNomos.values()){ const op = m.options.opacity ?? 1; if (op>=1) ones++; else zeros++; } assert(ones===1 && zeros===12, 'Μετά από focus φαίνεται μόνο 1'); console.info('✓ TestMarkers passed'); }
+    function testShowAllMarkers(){ showOnlyMarkerForNomos('Κοζάνης'); showAllMarkers(); let ones=0, zeros=0; for (const m of markerByNomos.values()){ const op = m.options.opacity ?? 1; if (op>=1) ones++; else zeros++; } assert(ones===13 && zeros===0, 'Μετά το "Δείξε όλους" είναι ορατοί και οι 13'); console.info('✓ TestShowAllMarkers passed'); }
+    function testPreloadMarkersImmediate(){ if(!hasLeaflet) return; assert(markerByNomos.size===13,'Preload: 13 μαρκαδόροι άμεσα'); let ones=0; for (const m of markerByNomos.values()){ const op = m.options.opacity ?? 1; if (op>=1) ones++; } assert(ones===13,'Preload: όλοι ορατοί αρχικά'); console.info('✓ TestPreloadMarkersImmediate passed'); }
+    function testResponsiveLayout(){ layoutBoards(); const ok1 = document.getElementById('board-nomoi').scrollHeight <= document.getElementById('board-nomoi').clientHeight + 2; const ok2 = document.getElementById('board-capitals').scrollHeight <= document.getElementById('board-capitals').clientHeight + 2; assert(ok1 && ok2, 'Τα boards δεν πρέπει να ξεχειλίζουν κατακόρυφα'); console.info('✓ TestResponsiveLayout passed'); }
+    function testResponsiveTileScaling(){ const boardsEl=document.querySelector('.boards'); const faceSel='#board-nomoi .card .face'; const face=document.querySelector(faceSel); if(!face) return; const fsBefore=parseFloat(getComputedStyle(face).fontSize); const prev=boardsEl.style.gridTemplateColumns; boardsEl.style.gridTemplateColumns='1fr'; layoutBoards(); const fsAfter=parseFloat(getComputedStyle(document.querySelector(faceSel)).fontSize); boardsEl.style.gridTemplateColumns=prev; layoutBoards(); assert(fsAfter>=fsBefore, 'Η γραμματοσειρά καρτών πρέπει να αυξάνει με μεγαλύτερο διαθέσιμο πλάτος'); console.info('✓ TestResponsiveTileScaling passed'); }
+    function testDebouncedLayout(){ let count=0; const orig=layoutBoards; layoutBoards=function(){ count++; orig(); }; for(let i=0;i<20;i++) scheduleLayout(); return new Promise((resolve)=>{ requestAnimationFrame(()=>{ const c=count; layoutBoards=orig; assert(c>=1 && c<=2, 'Το scheduleLayout πρέπει να συμπυκνώνει πολλαπλές κλήσεις'); console.info('✓ TestDebouncedLayout passed'); resolve(); }); }); }
+
+    async function runSelfTests(){
+      try{
+        testData(); testBoardsTwoPanels(); if (hasLeaflet) { testPreloadMarkersImmediate(); testMarkers(); testShowAllMarkers(); } testResponsiveLayout(); testResponsiveTileScaling(); await testDebouncedLayout(); console.info('✓ self-tests passed');
+      }catch(err){ console.error('Tests failed:',err); flashStatus('❌ Ένα self-test απέτυχε: '+(err && err.message ? err.message : 'unknown'),'err'); }
+    }
+
+    // ------------------------------
+    // 7) Κουμπιά
+    // ------------------------------
+    document.getElementById('btn-new').addEventListener('click',renderBoard);
+    document.getElementById('btn-study').addEventListener('click',()=>{ studyMode=!studyMode; modePill.textContent=studyMode?'Μελέτη':'Κανονικό'; document.querySelectorAll('.card').forEach(c=>c.classList.toggle('flipped',studyMode)); flashStatus(studyMode?'Λειτουργία μελέτης: δες όλα τα ζευγάρια.':'Επιστροφή σε κανονικό παιχνίδι.','ok'); scheduleLayout(); });
+    document.getElementById('btn-show-all').addEventListener('click',()=>{ showAllMarkers(); flashStatus('Εμφανίστηκαν όλοι οι μαρκαδόροι.','ok'); });
+
+    (async()=>{ await startApp(); })();
+  </script>
+</body>
+</html>
