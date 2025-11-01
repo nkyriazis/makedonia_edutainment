@@ -2,7 +2,7 @@
 <html lang="el">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Νομοί & Πρωτεύουσες Μακεδονίας – Παιχνίδι μνήμης + Διαδραστικός χάρτης</title>
 
   <!-- Leaflet CSS (κύριο CDN) -->
@@ -10,11 +10,55 @@
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"/>
 
   <style>
+    /* ---- Global interaction guard: hand cursor everywhere ---- */
+    html, body, * { cursor: pointer !important; }
+    /* Disable text selection and image dragging globally */
+    html, body, * { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+  img { -webkit-user-drag: none; }
+    /* Prevent clicking Leaflet UI controls/markers; allow wheel to pass through */
+    .leaflet-control { pointer-events: none !important; }
+    .leaflet-marker-icon, .leaflet-marker-shadow { pointer-events: none !important; }
+    /* Keep the map itself responsive to wheel for zoom */
+    #map, .leaflet-container { cursor: pointer !important; }
+    /* ---- 16:9 stage & scaling ---- */
+    html, body { height: 100%; }
+    body { margin:0; background:#0b1020; }
+    .stage-outer {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      background: linear-gradient(120deg,#0b1020,#0f172a 50%,#0b1020);
+      overflow: hidden;
+    }
+    /* Letterboxing bars (visual only) */
+    .stage-outer::before {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(1200px 600px at 50% 50%, rgba(255,255,255,.04), transparent 60%);
+    }
+    .stage {
+      position: absolute; left: 50%; top: 50%;
+      width: 1280px; height: 720px; /* Base 16:9 design resolution */
+      transform: translate(-50%, -50%) scale(1);
+      transform-origin: center center;
+      display: grid; grid-template-rows: auto 1fr; gap:12px;
+    }
+
+    /* Orientation overlay for unsupported orientations */
+    #orientation-overlay {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
+      background: #0b1020; color: #e5e7eb; z-index: 9999; text-align: center; padding: 24px;
+    }
+    #orientation-overlay .box {
+      max-width: 520px; border: 1px solid #334155; border-radius: 16px; padding: 18px 20px; background: #0b1220;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    #orientation-overlay h2 { margin: 0 0 8px 0; font-size: 18px; }
+    #orientation-overlay p { margin: 4px 0 0 0; font-size: 14px; color: #cbd5e1; }
+
     :root { --bg:#0f172a; --panel:#111827; --muted:#9ca3af; --text:#e5e7eb; --brand:#22c55e; --brand-2:#38bdf8; --danger:#f43f5e; --ok:#10b981; --card:#0b1220; }
     * { box-sizing: border-box; }
-    body { margin:0; background:linear-gradient(120deg,#0b1020,#0f172a 50%,#0b1020); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,'Noto Sans',sans-serif; min-height:100vh; display:grid; grid-template-rows:auto 1fr; gap:12px; }
+    /* Move previous body layout into stage to keep proportions */
+    .stage { color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,'Noto Sans',sans-serif; }
     header { padding:14px 18px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; border-bottom:1px solid #1f2937; position:sticky; top:0; z-index:10; backdrop-filter:blur(6px); }
-    header h1 { font-size:clamp(18px,2.2vw,24px); margin:0; font-weight:700; letter-spacing:.3px; }
+  header h1 { font-size:22px; margin:0; font-weight:700; letter-spacing:.3px; }
     header .sub { color:var(--muted); font-size:12px; }
     header .controls { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
     button { border:1px solid #334155; background:#0b1220; color:var(--text); padding:8px 12px; border-radius:12px; cursor:pointer; transition:.08s transform,.2s background,.2s border-color,.2s box-shadow; font-weight:600; }
@@ -23,24 +67,44 @@
 
     /* Διάταξη: αριστερά ο Χάρτης πλήρους ύψους, δεξιά το Παιχνίδι */
     main { display:grid; grid-template-columns: 1.25fr 1fr; gap:14px; padding:0 14px 18px; align-items: stretch; }
-    @media (max-width:980px){ main { grid-template-columns:1fr; } }
+    /* Force stable 2-column layout inside stage regardless of viewport */
+    .stage main { grid-template-columns: 1.25fr 1fr !important; }
 
-    .panel { background:linear-gradient(180deg,#0c1224,#0a0f1e); border:1px solid #1f2937; border-radius:18px; overflow:hidden; height:100%; display:grid; grid-template-rows:auto 1fr; }
+  .panel { background:linear-gradient(180deg,#0c1224,#0a0f1e); border:1px solid #1f2937; border-radius:18px; overflow:hidden; height:100%; min-height:0; display:grid; grid-template-rows:auto 1fr; }
     .panel h2 { margin:0; padding:12px 14px; font-size:14px; letter-spacing:.2px; color:#9ca3af; border-bottom:1px solid #1f2937; background:#0b1220; }
 
-    /* Χάρτης: γεμίζει όλη την αριστερή στήλη */
-    #map { height:100%; width:100%; position:relative; }
+  /* Χάρτης: γεμίζει όλη την αριστερή στήλη */
+  #map { height:100%; width:100%; position:relative; min-height: 120px; }
+  .map-fallback { display:grid; place-items:center; height:100%; color:#cbd5e1; font-size:14px; padding:12px; text-align:center; }
     .legend { position:absolute; bottom:10px; left:10px; background:#0b1220d0; padding:8px 10px; border-radius:12px; border:1px solid #1f2937; font-size:12px; color:#cbd5e1; z-index: 500; }
     .legend b { color:#e5e7eb; }
 
     /* Παιχνίδι δεξιά */
     .game-wrapper { grid-template-rows:auto 1fr auto auto; }
-    .hud { display:flex; gap:10px; align-items:center; padding:10px 14px; border-bottom:1px solid #1f2937; background:#0b1220; }
-    .hud .pill { background:#0b1220; border:1px solid #1f2937; padding:6px 10px; border-radius:12px; color:#cbd5e1; font-size:12px; }
+    /* HUD: 2x2 grid so pills have enough width and fixed row height for stability */
+    .hud {
+      display:grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 38px; gap:10px;
+      align-items:stretch; padding:10px 14px; border-bottom:1px solid #1f2937; background:#0b1220;
+      min-height: calc(38px*2 + 10px + 20px); /* two rows + gap + vertical padding */
+    }
+    .hud .pill {
+      background:#0b1220; border:1px solid #1f2937; padding:6px 10px; border-radius:12px; color:#cbd5e1; font-size:12px;
+      white-space:nowrap; line-height:1.2; display:flex; align-items:center; justify-content:center; overflow:hidden; text-overflow:ellipsis;
+    }
     .hud .step { background:#0b1220; border:1px dashed #334155; }
+  /* Keep the step pill from expanding the layout: flex it, allow shrink, clip with ellipsis */
+  /* Step pill is a grid item now; ensure clipping */
+  #step-pill { overflow: hidden; text-overflow: ellipsis; }
+  /* Stabilize numeric widths so other pills don't grow and shrink */
+  .hud .pill b { font-variant-numeric: tabular-nums; display:inline-block; text-align:right; }
+  #moves { min-width: 3ch; }
+  #pairs { min-width: 2ch; }
+  /* Keep mode pill width stable between labels */
+  #mode-pill { text-align: center; }
 
     .boards { display:grid; grid-template-columns: 1fr 1fr; gap:12px; padding:12px; height:100%; }
-    @media (max-width:980px){ .boards{ grid-template-columns:1fr; grid-auto-rows:1fr; } }
+  /* Keep two subpanels side by side within the fixed stage */
+  .stage .boards{ grid-template-columns:1fr 1fr !important; grid-auto-rows:initial !important; }
 
     .subpanel { display:grid; grid-template-rows:auto 1fr auto; gap:8px; min-height:0; border:1px solid #1f2937; border-radius:14px; padding:10px; background:#0b1220; }
     .subpanel h3 { margin:0; font-size:13px; color:#cbd5e1; font-weight:600; }
@@ -56,7 +120,30 @@
     .back { background:linear-gradient(135deg,#2563eb, #38bdf8); transform:rotateY(180deg); color:#fff; font-weight:800; letter-spacing:.3px; }
     .tag { position:absolute; top:6px; right:6px; font-size:var(--tag-fs); background:#0b1220cc; border:1px solid #1f2937; padding:3px 6px; border-radius:999px; color:#cbd5e1; }
 
-    .status { padding:10px 14px; font-size:12px; color:#cbd5e1; border-top:1px solid #1f2937; background:#0b1220; }
+    /* Αποφυγή υπερχείλισης κειμένου στα πλακίδια σε μικρές οθόνες */
+    .face { overflow: hidden; line-height: 1.12; }
+    .face .label {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3; /* έως 3 γραμμές σε desktop */
+      line-clamp: 3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      padding-inline: 4px;
+      word-break: break-word;          /* παλιότερα engines */
+      overflow-wrap: anywhere;         /* σύγχρονα browsers */
+      hyphens: auto;                   /* συλλαβισμός (html lang="el") */
+    }
+    @media (max-width: 980px){
+      .face .label{ -webkit-line-clamp: 2; line-clamp: 2; }
+    }
+
+    .status {
+      padding: 0 14px; font-size:12px; color:#cbd5e1; border-top:1px solid #1f2937; background:#0b1220;
+      line-height: 1.2; height: 36px; display:flex; align-items:center;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .status .ok { color:var(--ok); } .status .warn { color:#f59e0b; } .status .err { color:#f43f5e; }
     .credits { font-size:11px; color:#9ca3af; padding:6px 12px 12px; }
     .credits a { color:#93c5fd; text-decoration:none; }
@@ -64,6 +151,16 @@
   </style>
 </head>
 <body>
+  <!-- Orientation guard overlay (shown on unsupported orientations) -->
+  <div id="orientation-overlay" role="alert" aria-live="assertive">
+    <div class="box">
+      <h2>Απαιτείται οριζόντιος προσανατολισμός</h2>
+      <p>Το παιχνίδι λειτουργεί σε σταθερή αναλογία 16:9. Περιστρέψτε τη συσκευή σας σε οριζόντιο προσανατολισμό.</p>
+    </div>
+  </div>
+
+  <div class="stage-outer">
+    <div class="stage" id="stage">
   <header>
     <h1>Νομοί &amp; Πρωτεύουσες της Μακεδονίας <span class="sub">(13)</span></h1>
     <div class="controls">
@@ -108,6 +205,8 @@
       </div>
     </section>
   </main>
+    </div>
+  </div>
 
   <script>
     "use strict";
@@ -240,6 +339,28 @@
     function showOnlyMarkerForNomos(nomos){ const target=markerByNomos.get(nomos); if(!target) return; for (const m of markerByNomos.values()) { try{ m.setOpacity(0); m.options.opacity = 0; }catch{} } try{ target.setOpacity(1); target.options.opacity = 1; target.setZIndexOffset(1000); target.openPopup(); map.setView(target.getLatLng(), 9, {animate:true}); }catch{} }
     function showAllMarkers(){ for (const m of markerByNomos.values()) { try{ m.setOpacity(1); m.options.opacity = 1; m.setZIndexOffset(0);}catch{} } }
 
+    // Helper: map auto-fit to include all markers ("extend" view)
+    function areAllMarkersFullyVisible(){
+      if (!hasLeaflet || !map || markerByNomos.size===0) return false;
+      let allVisible=true; for (const m of markerByNomos.values()){ const op=m?.options?.opacity; if (typeof op==='number' && op<1){ allVisible=false; break; } }
+      return allVisible;
+    }
+    function fitMapToAllMarkers(padding=30){
+      if (!hasLeaflet || !map || markerByNomos.size===0) return;
+      try{
+        const pts=[]; for (const m of markerByNomos.values()){ try{ const ll=m.getLatLng(); if(ll) pts.push(ll); }catch{} }
+        if (pts.length===0) return;
+        if (pts.length===1){ map.setView(pts[0], 9, {animate:false}); return; }
+        const b=L.latLngBounds(pts);
+        map.fitBounds(b, {padding: [padding, padding], maxZoom: 10, animate:false});
+      }catch{}
+    }
+    let fitBoundsScheduled=false;
+    function scheduleFitMapToAllMarkers(){
+      if (fitBoundsScheduled) return; fitBoundsScheduled=true;
+      setTimeout(()=>{ fitBoundsScheduled=false; if (areAllMarkersFullyVisible()) { try{ fitMapToAllMarkers(); }catch{} } }, 60);
+    }
+
     // ------------------------------
     // 3) Παιχνίδι μνήμης – Δύο πίνακες
     // ------------------------------
@@ -261,7 +382,7 @@
     function makeCardEl(card, onClick){
       const cardEl=document.createElement('div'); cardEl.className='card';
       cardEl.dataset.type=card.type; cardEl.dataset.key=card.key; cardEl.dataset.label=card.label;
-      cardEl.innerHTML=`<div class="card-inner"><div class="face front"><span class="tag">${card.tag}</span></div><div class="face back">${card.label}</div></div>`;
+      cardEl.innerHTML=`<div class="card-inner"><div class="face front"><span class="tag">${card.tag}</span></div><div class="face back"><span class="label">${card.label}</span></div></div>`;
       cardEl.addEventListener('click',()=>onClick(cardEl,card));
       return cardEl;
     }
@@ -358,19 +479,79 @@
     }
 
     // ------------------------------
+    // 4b) 16:9 fixed stage scaling and orientation guard (moved earlier to avoid TDZ)
+    // ------------------------------
+    const BASE_W=1280, BASE_H=720;
+    function applyStageScale(){
+      const stage=document.getElementById('stage'); if(!stage) return;
+      const vw=window.innerWidth, vh=window.innerHeight; const scale=Math.min(vw/BASE_W, vh/BASE_H);
+      stage.style.transform=`translate(-50%, -50%) scale(${scale})`;
+    }
+    function isMobileDevice(){
+      return /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
+    }
+    function inPortrait(){ return window.innerHeight > window.innerWidth; }
+    function updateOrientationGuard(){
+      const overlay=document.getElementById('orientation-overlay');
+      const mustLandscape = true; // enforce landscape for the 16:9 game
+      const show = isMobileDevice() && mustLandscape && inPortrait();
+      overlay.style.display = show ? 'flex' : 'none';
+      // Disable page scroll when overlay visible
+      document.documentElement.style.overflow = show ? 'hidden' : '';
+      document.body.style.overflow = show ? 'hidden' : '';
+    }
+    async function tryLockLandscape(){
+      if(!(screen && screen.orientation && screen.orientation.lock)) return false;
+      try{
+        await screen.orientation.lock('landscape');
+        return true;
+      }catch{
+        return false;
+      }
+    }
+
+    // ------------------------------
     // 5) Εκκίνηση εφαρμογής
     // ------------------------------
     async function startApp(){
+      // Kiosk-like interaction guard first
+      setupInteractionGuards();
+      // Initial stage scale
+      applyStageScale();
+      updateOrientationGuard();
+
       await ensureLeafletCSS(); hasLeaflet=await ensureLeaflet();
       if(hasLeaflet){
         map=L.map('map',{ zoomControl:true, scrollWheelZoom:true }).setView([40.7,22.5],7);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ maxZoom:18, attribution:'&copy; OpenStreetMap συνεισφέροντες' }).addTo(map);
         markersLayer=L.layerGroup().addTo(map);
-        window.addEventListener('resize', () => { try{ map.invalidateSize(); }catch{} scheduleLayout(); });
-        setTimeout(()=>{ try{ map.invalidateSize(); }catch{} scheduleLayout(); }, 60);
-        renderCapitalMarkers(CAPITAL_COORDS_FALLBACK); showAllMarkers();
+        // Allow only wheel zoom; disable other mouse interactions on the map
+        try{
+          map.dragging.disable();
+          map.doubleClickZoom.disable();
+          map.boxZoom.disable();
+          map.keyboard.disable();
+          if (map.tap) map.tap.disable();
+          map.touchZoom.disable();
+          map.scrollWheelZoom.enable();
+        }catch{}
+        // Invalidate size a couple of times to cover first-render under transformed parent
+        setTimeout(()=>{ try{ map.invalidateSize(); }catch{} scheduleLayout(); }, 80);
+        setTimeout(()=>{ try{ map.invalidateSize(); }catch{} }, 200);
+        // Observe map container size changes to keep tiles positioned correctly
+        try {
+          const mapEl=document.getElementById('map');
+          if (mapEl && 'ResizeObserver' in window){
+            const mro=new ResizeObserver(()=>{ try{ map && map.invalidateSize(); }catch{} });
+            mro.observe(mapEl);
+          }
+        } catch {}
+        renderCapitalMarkers(CAPITAL_COORDS_FALLBACK); showAllMarkers(); scheduleFitMapToAllMarkers();
       } else {
-        document.getElementById('map-panel').classList.add('hidden');
+        const mapEl=document.getElementById('map');
+        if (mapEl){
+          mapEl.innerHTML = '<div class="map-fallback">Δεν ήταν δυνατή η φόρτωση του χάρτη (Leaflet).<br/>Ενδέχεται να φταίει το δίκτυο, το CDN ή κάποιο blocker.<br/><small>Το παιχνίδι λειτουργεί κανονικά χωρίς χάρτη.</small></div>';
+        }
         flashStatus('⚠️ Δεν φορτώθηκε ο χάρτης (Leaflet). Το παιχνίδι λειτουργεί κανονικά χωρίς χάρτη.','warn');
       }
 
@@ -383,7 +564,13 @@
 
       renderBoard();
 
-      try{ const coords=await loadCapitalsFromWikidata(); applyCoordsToMarkers(coords); flashStatus('Οι μαρκαδόροι ενημερώθηκαν με ακριβέστερες συντεταγμένες.','ok'); }catch(e){ console.warn(e); }
+  try{ const coords=await loadCapitalsFromWikidata(); applyCoordsToMarkers(coords); flashStatus('Οι μαρκαδόροι ενημερώθηκαν με ακριβέστερες συντεταγμένες.','ok'); }catch(e){ console.warn(e); }
+  // After coordinates update, auto-extend view if all markers are visible
+  scheduleFitMapToAllMarkers();
+
+  // Final nudge after content & fonts settle
+  setTimeout(onViewportChanged, 0);
+  setTimeout(onViewportChanged, 300);
 
       runSelfTests();
     }
@@ -423,10 +610,63 @@
     // 7) Κουμπιά
     // ------------------------------
     document.getElementById('btn-new').addEventListener('click',renderBoard);
+    document.getElementById('btn-new').addEventListener('click',tryLockLandscape);
     document.getElementById('btn-study').addEventListener('click',()=>{ studyMode=!studyMode; modePill.textContent=studyMode?'Μελέτη':'Κανονικό'; document.querySelectorAll('.card').forEach(c=>c.classList.toggle('flipped',studyMode)); flashStatus(studyMode?'Λειτουργία μελέτης: δες όλα τα ζευγάρια.':'Επιστροφή σε κανονικό παιχνίδι.','ok'); scheduleLayout(); });
     document.getElementById('btn-show-all').addEventListener('click',()=>{ showAllMarkers(); flashStatus('Εμφανίστηκαν όλοι οι μαρκαδόροι.','ok'); });
 
-    (async()=>{ await startApp(); })();
+  // Global resize/orientation handlers to keep scale and orientation consistent
+  function onViewportChanged(){
+    applyStageScale();
+    updateOrientationGuard();
+    try{ if(hasLeaflet && map){ map.invalidateSize(); } }catch{}
+    scheduleLayout();
+    // On viewport changes, extend map to include all markers only when all are visible (avoid interrupting focused views)
+    if (hasLeaflet && map) scheduleFitMapToAllMarkers();
+  }
+  window.addEventListener('resize', onViewportChanged);
+  window.addEventListener('orientationchange', () => setTimeout(onViewportChanged, 50));
+  // Ensure first-render adaptation without needing a manual resize (mobile/desktop)
+  window.addEventListener('load', () => setTimeout(onViewportChanged, 50));
+  window.addEventListener('pageshow', () => setTimeout(onViewportChanged, 50));
+  if (window.visualViewport) { try { visualViewport.addEventListener('resize', () => setTimeout(onViewportChanged, 0), { passive: true }); } catch {} }
+
+  (async()=>{ await startApp(); })();
+
+    // ------------------------------
+    // 8) 16:9 fixed stage scaling and orientation guard
+    // ------------------------------
+
+    // Limit mouse interactions globally: only allow clicking the top buttons and scrolling (wheel) on the map
+  function setupInteractionGuards(){
+      // Prevent context menu, text selection and drag globally
+      document.addEventListener('contextmenu', e=> e.preventDefault());
+      document.addEventListener('dragstart',   e=> e.preventDefault());
+      document.addEventListener('selectstart', e=> e.preventDefault());
+
+      // Disallow page scrolling; map wheel zoom still works
+      try{ document.documentElement.style.overflow='hidden'; document.body.style.overflow='hidden'; }catch{}
+
+  const isAllowedButton = (t)=> !!(t && t.closest && t.closest('#btn-new, #btn-study, #btn-show-all'));
+  const isGameCard     = (t)=> !!(t && t.closest && t.closest('.card'));
+  const isMapArea      = (t)=> !!(t && t.closest && t.closest('#map'));
+
+      const blockIfNotAllowed = (e)=>{
+        if (isAllowedButton(e.target) || isGameCard(e.target)) return; // allow clicks on buttons and game cards
+        // Everything else (including map clicks) is blocked
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      };
+
+      // Block click-related events globally, except on allowed buttons
+      document.addEventListener('click', blockIfNotAllowed, true);
+      document.addEventListener('mousedown', blockIfNotAllowed, true);
+      document.addEventListener('mouseup', blockIfNotAllowed, true);
+      document.addEventListener('dblclick', blockIfNotAllowed, true);
+
+      // Do not block wheel events anywhere, but only the map meaningfully responds (zoom)
+      // No handler needed; CSS/Leaflet settings above limit other interactions.
+    }
+
   </script>
 </body>
 </html>
