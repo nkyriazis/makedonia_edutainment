@@ -1,0 +1,13 @@
+{
+  "editor.formatOnSave": true,
+  "editor.tabSize": 2,
+  "editor.detectIndentation": false,
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "html.format.wrapLineLength": 100,
+  "html.format.endWithNewline": true,
+  "files.defaultLanguage": "html",
+  "liveServer.settings.port": 5500,
+  "diffEditor.ignoreTrimWhitespace": false
+}
